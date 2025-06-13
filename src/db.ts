@@ -50,6 +50,14 @@ export class Database {
       : Promise.reject(null)
   }
 
+  // 更新多条数据
+  updateMany(where: any, update: any, tabName: string) {
+    update = { $set: update }
+    return this.dbs
+      ? this.dbs.collection(tabName).updateMany(where, update)
+      : Promise.reject(null)
+  }
+
   findAll(where: any, tabName: string) {
     return this.dbs
       ? this.dbs.collection(tabName).find(where).toArray()

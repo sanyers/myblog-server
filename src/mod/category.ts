@@ -5,11 +5,13 @@ import { authAdmin } from '../auth'
 
 const router = express.Router()
 const db = new Database()
+const categoryTable = 'category_'
+const blogTable = 'blog'
 
 // 获取类别
 router.get('/category', async (req, res) => {
-  const list: Array<any> = await db.findAll({}, 'category_1')
-  const typeList = await db.findAll({}, 'category_2')
+  const list: Array<any> = await db.findAll({}, `${categoryTable}1`)
+  const typeList = await db.findAll({}, `${categoryTable}2`)
   list.forEach(element => {
     element.typeList = typeList.filter(i =>
       db.getObjectId(element._id).equals(i.parentId),
@@ -24,7 +26,7 @@ router.post('/category', authAdmin, async (req, res) => {
   const type = req.body.type as number
   const name = req.body.name as string
   const desc = req.body.desc as string
-  const tableName = `category_${type}`
+  const tableName = `${categoryTable}${type}`
   const nowTime = new Date().getTime()
   const data: any = {
     name,
@@ -45,7 +47,7 @@ router.post('/category/update', authAdmin, async (req, res) => {
   const type = req.body.type as number
   const name = req.body.name as string
   const desc = req.body.desc as string
-  const tableName = `category_${type}`
+  const tableName = `${categoryTable}${type}`
   const utime = new Date().getTime()
   const where = { _id: db.getObjectId(id) }
   const item = await db.find(where, tableName)
@@ -61,8 +63,23 @@ router.post('/category/update', authAdmin, async (req, res) => {
 router.post('/category/delete', authAdmin, async (req, res) => {
   const id = req.body.id as string
   const type = req.body.type as number
-  const tableName = `category_${type}`
+  const tableName = `${categoryTable}${type}`
   const where = { _id: db.getObjectId(id) }
+
+  // 将所属博客类型置空
+  if (type === 1) {
+    await db.updateMany({ type1: id }, { type1: '', type2: '' }, blogTable)
+  } else if (type === 2) {
+    const item = await db.find(where, tableName)
+    if (item) {
+      await db.updateMany(
+        { type1: item.parentId, type2: id },
+        { type1: '', type2: '' },
+        blogTable,
+      )
+    }
+  }
+
   await db.delete(where, tableName)
   success(res, 'ok')
 })

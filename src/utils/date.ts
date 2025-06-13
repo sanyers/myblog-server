@@ -24,3 +24,21 @@ export const getNowAdd = (n: number, type: string, time?: Date) => {
   }
   return now.getTime()
 }
+
+export const formatDuration = (seconds: number) => {
+  if (seconds === 0) return ''
+
+  const timeUnits = [
+    { value: Math.floor(seconds / 86400), unit: '天' },
+    { value: Math.floor((seconds % 86400) / 3600), unit: '小时' },
+    { value: Math.floor((seconds % 3600) / 60), unit: '分钟' },
+    { value: seconds % 60, unit: '秒' },
+  ]
+
+  const result = timeUnits
+    .filter(item => item.value > 0)
+    .map(item => `${item.value}${item.unit}`)
+    .join('')
+
+  return result || ''
+}

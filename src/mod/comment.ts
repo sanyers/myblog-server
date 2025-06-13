@@ -1,106 +1,143 @@
 import express from 'express'
 import { success, error } from '../res-code'
 import { Database } from '../db'
-import { auth, authAdmin } from '../auth'
-import { comment_verify } from '../env'
+import { auth } from '../auth'
+import { updateComment } from '../utils/comment-utils'
 
 const router = express.Router()
 const db = new Database()
 const tableName = 'comments'
+const blogTable = 'blog'
 
 // 查询博客评论
-router.get('/comment', auth, async (req, res) => {
-  const userName = req.headers['_userName']
+router.get('/comment', async (req, res) => {
   const blogId = req.query.blogId
   const item = await db.find({ blogId }, tableName)
   if (item) {
-    if (userName) {
-      success(res, item.comments)
-    } else {
-      const list = item.comments.filter((i: any) => i.isShow)
-      success(res, list)
-    }
+    const list = item.comments.filter((i: any) => i.isShow)
+    success(res, list)
   } else {
     success(res, [])
   }
 })
 
-// 博客评论
-router.post('/comment', auth, async (req, res) => {
-  const blogId = req.body.blogId
-  const desc = req.body.desc
-  const userName = req.body.userName
-  const email = req.body.email
-  const quoteId = req.body.quoteId // 引用楼层
-  const item = await db.find({ blogId }, tableName)
-  const nowTime = new Date().getTime()
-  const userNames = req.headers['_userName']
+// 查询博客评论（后台）
+router.get('/comments', auth, async (req, res) => {
+  const pageNum = Number((req.query.pageNum as string) || '1')
+  const pageSize = Number((req.query.pageSize as string) || '10')
+  const userName = req.headers['_userName'] as string
+
+  const start = (pageNum - 1) * pageSize
+  const sort = { _id: -1, utime: -1 }
+  const where = { author: userName }
+
+  const list = await db.findLimit(where, tableName, sort, start, pageSize)
+  const ids = list.map(i => db.getObjectId(i.blogId))
+  const blogList = await db.findAll({ _id: { $in: ids } }, blogTable)
+  list.forEach(element => {
+    const item = blogList.find(i => i._id.equals(element.blogId))
+    if (item) {
+      element.blogName = item.name
+    }
+  })
+  const itemCount = await db.findCount(where, tableName)
+  const pageCount = Math.ceil(itemCount / pageSize)
+  const data = {
+    list,
+    itemCount,
+    pageCount,
+  }
+  success(res, data)
+})
+
+// 博客评论（前台评论）
+router.post('/comment', async (req, res) => {
+  const blogId = req.body.blogId as string
+  const desc = req.body.desc as string
+  const userName = req.body.userName as string
+  const email = req.body.email as string
+  const quoteId = req.body.quoteId as number // 引用楼层
 
   if (!userName) {
     return error(res, 'userName is null')
   }
 
-  const commentItem: any = {
+  await updateComment(
     desc,
-    ctime: nowTime,
     userName,
-    isShow: !comment_verify,
-    isAuthor: false,
-  }
-  if (email) {
-    commentItem.email = email
-  }
-
-  if (userNames) {
-    commentItem.isAuthor = true
-  }
-
-  if (item) {
-    if (quoteId) {
-      commentItem.quoteId = quoteId
-    }
-    commentItem.id =
-      item.comments.length > 0
-        ? item.comments[item.comments.length - 1].id + 1
-        : 1
-    await db.updates(
-      { blogId },
-      { $push: { comments: commentItem } },
-      tableName,
-    )
-  } else {
-    commentItem.id = 1
-    const data = {
-      blogId,
-      comments: [commentItem],
-    }
-    await db.insert(data, tableName)
-  }
+    db,
+    blogId,
+    blogTable,
+    tableName,
+    email,
+    quoteId,
+  )
   success(res, 'ok')
 })
 
-// 审核评论
-router.post('/comment/verify', authAdmin, async (req, res) => {
+// 博客评论（后台回复）
+router.post('/comments', auth, async (req, res) => {
+  const blogId = req.body.blogId
+  const desc = req.body.desc
+  const email = req.body.email
+  const quoteId = req.body.quoteId // 引用楼层
+  const userName = req.headers['_userName'] as string
+
+  await updateComment(
+    desc,
+    userName,
+    db,
+    blogId,
+    blogTable,
+    tableName,
+    email,
+    quoteId,
+  )
+  success(res, 'ok')
+})
+
+// 显示与隐藏评论（后台操作）
+router.post('/comment/show', auth, async (req, res) => {
   const blogId = req.body.blogId
   const commentId = req.body.commentId
   const isShow = req.body.isShow
-  await db.update(
-    { blogId, 'comments.id': commentId },
-    { 'comments.$.isShow': isShow },
-    tableName,
-  )
+  const userName = req.headers['_userName']
+
+  const blogItem = await db.find({ _id: db.getObjectId(blogId) }, blogTable)
+  if (blogItem) {
+    if (blogItem.author === userName) {
+      await db.update(
+        { blogId, 'comments.id': commentId },
+        { 'comments.$.isShow': isShow },
+        tableName,
+      )
+    }
+  }
+
   success(res, 'ok')
 })
 
-// 删除评论
-router.post('/comment/delete', authAdmin, async (req, res) => {
-  const blogId = req.body.blogId
-  const commentId = req.body.commentId
-  await db.updates(
-    { blogId },
-    { $pull: { comments: { id: commentId } } },
-    tableName,
-  )
+// 删除评论（后台操作）
+router.post('/comment/delete', auth, async (req, res) => {
+  const blogId = req.body.blogId as string
+  const commentId = req.body.commentId as number
+  const userName = req.headers['_userName']
+
+  const blogItem = await db.find({ _id: db.getObjectId(blogId) }, blogTable)
+  if (blogItem) {
+    if (blogItem.author === userName) {
+      if (commentId) {
+        await db.updates(
+          { blogId },
+          { $pull: { comments: { id: commentId } } },
+          tableName,
+        )
+      } else {
+        await db.delete({ blogId }, tableName)
+      }
+    }
+  }
+
   success(res, 'ok')
 })
 
