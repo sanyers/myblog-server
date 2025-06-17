@@ -121,7 +121,7 @@ router.get('/blog/lists', auth, async (req, res) => {
 
 // 最近更新列表
 router.get('/blog/last', async (req, res) => {
-  const sort = { utime: -1 }
+  const sort = { ctime: -1 }
   const where = { release: true }
   const list = await db.findLimit(where, tableName, sort, 0, 10)
   success(res, list)
