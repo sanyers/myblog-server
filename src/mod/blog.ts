@@ -135,7 +135,8 @@ router.post('/blog', auth, async (req, res) => {
   const name = req.body.name as string
   const desc = req.body.desc as string // 描述
   const content = req.body.content as string
-  const format = (req.body.format as string) || 'md' // md or html
+  const format = (req.body.format as string) || 'md' // md、html、pdf
+  const fileUrl = (req.body.fileUrl as string) || '' // pdf 文件地址
   const userName = req.headers['_userName']
 
   const nowTime = new Date().getTime()
@@ -156,8 +157,20 @@ router.post('/blog', auth, async (req, res) => {
   if (desc) {
     data.desc = desc
   }
+
+  if (fileUrl) {
+    data.fileUrl = fileUrl
+  }
   if (id) {
-    await db.update({ _id: db.getObjectId(id) }, data, tableName)
+    const where = { _id: db.getObjectId(id) }
+    const item = await db.find(where, tableName)
+    if (item && fileUrl) {
+      const url = item.fileUrl.replace('/imgs', './web')
+      try {
+        fs.unlinkSync(url)
+      } catch (e) {}
+    }
+    await db.update(where, data, tableName)
   } else {
     data.isTop = false
     data.ctime = nowTime
@@ -215,6 +228,13 @@ router.post('/blog/delete', auth, async (req, res) => {
 
   if (id) {
     const where = { _id: db.getObjectId(id), author: userName }
+    const item = await db.find(where, tableName)
+    if (item && item.fileUrl) {
+      const url = item.fileUrl.replace('/imgs', './web')
+      try {
+        fs.unlinkSync(url)
+      } catch (e) {}
+    }
     await db.delete(where, tableName)
     await db.delete({ blogId: id }, commentTableName)
   }
@@ -258,14 +278,22 @@ router.post('/blog/file', auth, mp, async (req, res) => {
   const list: Array<string> = []
   if (Array.isArray(file)) {
     file.forEach((item: any) => {
-      const fileName = v4() + '.' + item.name.split('.')[1]
+      const ext = item.name.substring(
+        item.name.lastIndexOf('.'),
+        item.name.length,
+      )
+      const fileName = v4() + ext
       const newPath = `${newPath2}/${fileName}`
       fs.renameSync(item.path, newPath)
       const url = `/imgs/${type1}/${type2}/${fileName}`
       list.push(url)
     })
   } else {
-    const fileName = v4() + '.' + file.name.split('.')[1]
+    const ext = file.name.substring(
+      file.name.lastIndexOf('.'),
+      file.name.length,
+    )
+    const fileName = v4() + ext
     const newPath = `${newPath2}/${fileName}`
     fs.renameSync(file.path, newPath)
     const url = `/imgs/${type1}/${type2}/${fileName}`
@@ -274,7 +302,7 @@ router.post('/blog/file', auth, mp, async (req, res) => {
   success(res, list)
 })
 
-// 设置博客类型
+// 设置博客类目
 router.post('/blog/settype', auth, async (req, res) => {
   const id = req.body.id as string
   const type1 = (req.body.type1 as string) || ''
